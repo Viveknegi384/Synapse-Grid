@@ -1,14 +1,38 @@
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import { ChatGroq } from '@langchain/groq';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { query as dbQuery } from '../db/index.js';
 import { searchWeb, scrapeUrls } from './tools.js';
 
-// ── Shared LLM instance ───────────────────────────────────────────────────────
-const llm = new ChatGoogleGenerativeAI({
-  model: 'gemini-1.5-flash',
-  apiKey: process.env.GEMINI_API_KEY,
-  temperature: 0.3,
+// ── Shared LLM (Groq — ultra-low latency) ────────────────────────────────────
+const llm = new ChatGroq({
+  apiKey: process.env.GROQ_API_KEY,
+  model: 'llama3-8b-8192',
+  temperature: 0,
 });
+
+// ── Structured output schema for CriticAgent (JSON Schema — Zod-version safe) ─
+// Using a plain JSON Schema avoids the Zod v3/v4 mismatch between LangChain
+// internals and the locally installed zod package.
+const CriticSchema = {
+  name: 'critic_output',
+  description: 'Structured editorial verdict on the research report',
+  parameters: {
+    type: 'object',
+    properties: {
+      status: {
+        type: 'string',
+        enum: ['PASS', 'REVISE'],
+        description: "'PASS' if comprehensive, 'REVISE' if gaps exist",
+      },
+      feedback: {
+        type: 'string',
+        description: 'Detailed feedback when REVISE, empty string when PASS',
+      },
+    },
+    required: ['status', 'feedback'],
+  },
+};
+
 
 // ── Helper: persist agent activity to the DB ──────────────────────────────────
 async function logToDb(sessionId, agentName, message) {
@@ -75,9 +99,7 @@ export async function scrapeAgentNode(state) {
     new SystemMessage(
       'You are a research analyst. Summarise the following raw web content into a dense, fact-rich research brief relevant to the given topic. Preserve key data, statistics, names, and dates. Output plain text only.'
     ),
-    new HumanMessage(
-      `Topic: ${userQuery}\n\nRaw content:\n${rawText}`
-    ),
+    new HumanMessage(`Topic: ${userQuery}\n\nRaw content:\n${rawText}`),
   ]);
 
   const scrapedContent = response.content.trim();
@@ -141,30 +163,31 @@ Use professional, precise language. Output ONLY valid Markdown — no preamble.`
 
 // ── Agent 4: CriticAgent ──────────────────────────────────────────────────────
 /**
- * Reviews the draft report against the original query. Outputs a structured
- * JSON verdict. Forces PASS after 2 revisions to prevent runaway costs.
+ * Reviews the draft report against the original query.
+ * Uses .withStructuredOutput() to guarantee a typed { status, feedback } object —
+ * no manual JSON parsing or hallucination cleanup needed.
+ * Forces PASS after 2 revisions to prevent runaway API costs.
  */
 export async function criticAgentNode(state) {
   const { sessionId, draftReport, userQuery, revisionCount } = state;
   await logToDb(sessionId, 'CriticAgent', `Evaluating report (revision count: ${revisionCount})…`);
 
-  // Hard cap to prevent infinite billing loops
+  // Hard cap — prevent infinite billing loops
   if (revisionCount >= 2) {
-    await logToDb(
-      sessionId,
-      'CriticAgent',
-      'Revision cap reached (2). Forcing PASS.'
-    );
+    await logToDb(sessionId, 'CriticAgent', 'Revision cap reached (2). Forcing PASS.');
     return { status: 'PASS', feedback: '' };
   }
 
-  const response = await llm.invoke([
+  // Lazily create the structured LLM inside the function to avoid top-level
+  // binding issues with the ChatGroq class during module initialisation
+  const structuredCriticLlm = llm.withStructuredOutput(CriticSchema);
+
+  // structuredCriticLlm.invoke() returns a typed object matching CriticSchema
+  const result = await structuredCriticLlm.invoke([
     new SystemMessage(
       `You are a strict research editor. Evaluate whether the provided Markdown report adequately answers the research topic.
-Respond with ONLY a valid JSON object in this exact format (no markdown fences, no explanation):
-{"status": "PASS" | "REVISE", "feedback": "detailed reasons if REVISE, or empty string if PASS"}
 
-Criteria for REVISE: missing key sections, factual gaps, lack of depth, hallucinations, or poor structure.
+Criteria for REVISE: missing key sections, factual gaps, lack of depth, or poor structure.
 Criteria for PASS: comprehensive coverage, well-structured, factually grounded.`
     ),
     new HumanMessage(
@@ -172,28 +195,11 @@ Criteria for PASS: comprehensive coverage, well-structured, factually grounded.`
     ),
   ]);
 
-  let parsed = { status: 'PASS', feedback: '' };
-  try {
-    // Strip any accidental markdown fences the LLM might add
-    const cleaned = response.content
-      .trim()
-      .replace(/^```[a-z]*\n?/i, '')
-      .replace(/```$/i, '')
-      .trim();
-    parsed = JSON.parse(cleaned);
-    // Normalise status to uppercase
-    parsed.status = parsed.status?.toUpperCase() === 'REVISE' ? 'REVISE' : 'PASS';
-  } catch (err) {
-    console.error('[CriticAgent] Failed to parse LLM JSON response:', err.message);
-    // Default to PASS on parse failure so we don't loop forever
-    parsed = { status: 'PASS', feedback: '' };
-  }
-
   await logToDb(
     sessionId,
     'CriticAgent',
-    `Verdict: ${parsed.status}. ${parsed.feedback ? `Feedback: ${parsed.feedback.slice(0, 200)}` : ''}`
+    `Verdict: ${result.status}. ${result.feedback ? `Feedback: ${result.feedback.slice(0, 200)}` : ''}`
   );
 
-  return { status: parsed.status, feedback: parsed.feedback };
+  return { status: result.status, feedback: result.feedback };
 }

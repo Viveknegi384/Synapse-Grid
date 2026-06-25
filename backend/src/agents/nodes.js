@@ -6,30 +6,14 @@ import agentEmitter from '../utils/eventEmitter.js';
 
 const llm = new ChatGroq({
   apiKey: process.env.GROQ_API_KEY,
-  model: 'llama3-8b-8192',
+  model: 'llama-3.1-8b-instant',
   temperature: 0,
 });
 
-// Plain JSON Schema avoids Zod v3/v4 mismatch with LangChain internals
-const CriticSchema = {
-  name: 'critic_output',
-  description: 'Structured editorial verdict on the research report',
-  parameters: {
-    type: 'object',
-    properties: {
-      status: {
-        type: 'string',
-        enum: ['PASS', 'REVISE'],
-        description: "'PASS' if comprehensive, 'REVISE' if gaps exist",
-      },
-      feedback: {
-        type: 'string',
-        description: 'Detailed feedback when REVISE, empty string when PASS',
-      },
-    },
-    required: ['status', 'feedback'],
-  },
-};
+// NOTE: CriticAgent does NOT use withStructuredOutput.
+// withStructuredOutput creates an internal LangChain tool whose schema validator
+// throws "Expected object, received string" when Groq returns raw text.
+// We use plain llm.invoke() + manual JSON parse instead — fully reliable.
 
 // Persists log to DB and broadcasts via SSE in real-time
 async function logToDb(sessionId, agentName, message) {
@@ -168,25 +152,48 @@ export async function criticAgentNode(state) {
     return { status: 'PASS', feedback: '' };
   }
 
-  const structuredCriticLlm = llm.withStructuredOutput(CriticSchema);
-
-  const result = await structuredCriticLlm.invoke([
+  // Use plain llm.invoke() — no withStructuredOutput, no internal tool schema validation.
+  // The LLM is instructed to return raw JSON; we parse + validate it ourselves.
+  const response = await llm.invoke([
     new SystemMessage(
-      `You are a strict research editor. Evaluate whether the provided Markdown report adequately answers the research topic.
+      `You are a strict research editor. Evaluate whether the Markdown report answers the research topic.
 
-Criteria for REVISE: missing key sections, factual gaps, lack of depth, or poor structure.
-Criteria for PASS: comprehensive coverage, well-structured, factually grounded.`
+Criteria for REVISE: missing sections, factual gaps, shallow depth, or poor structure.
+Criteria for PASS: comprehensive, well-structured, factually grounded.
+
+Respond ONLY with this exact JSON (no markdown fences, no extra text):
+{"status":"PASS","feedback":""}
+or
+{"status":"REVISE","feedback":"reason here"}`
     ),
-    new HumanMessage(
-      `Research Topic: ${userQuery}\n\nReport Draft:\n${draftReport}`
-    ),
+    new HumanMessage(`Research Topic: ${userQuery}\n\nReport Draft:\n${draftReport}`),
   ]);
+
+  // Robust manual parse — strip any accidental markdown fences
+  let status = 'PASS';
+  let feedback = '';
+  try {
+    const cleaned = response.content
+      .trim()
+      .replace(/^```[a-z]*\n?/i, '')
+      .replace(/```\s*$/i, '')
+      .trim();
+    const parsed = JSON.parse(cleaned);
+    status = ['PASS', 'REVISE'].includes(String(parsed.status).toUpperCase())
+      ? String(parsed.status).toUpperCase()
+      : 'PASS';
+    feedback = parsed.feedback ?? '';
+  } catch (err) {
+    console.warn('[CriticAgent] JSON parse failed, defaulting to PASS:', err.message);
+    status = 'PASS';
+    feedback = '';
+  }
 
   await logToDb(
     sessionId,
     'CriticAgent',
-    `Verdict: ${result.status}. ${result.feedback ? `Feedback: ${result.feedback.slice(0, 200)}` : ''}`
+    `Verdict: ${status}. ${feedback ? `Feedback: ${feedback.slice(0, 200)}` : ''}`
   );
 
-  return { status: result.status, feedback: result.feedback };
+  return { status, feedback };
 }

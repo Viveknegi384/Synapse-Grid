@@ -7,7 +7,15 @@ const tavilyTool = new TavilySearch({
 });
 
 export async function searchWeb(query) {
-  const results = await tavilyTool.invoke(query);
+  // TavilySearch is a StructuredTool — its Zod schema expects { query: string }.
+  // Passing a plain string triggers the same "Expected object, received string" error.
+  const raw = await tavilyTool.invoke({ query: String(query).trim() });
+
+  // Guard: some SDK versions return a JSON string instead of an array
+  let results = raw;
+  if (typeof raw === 'string') {
+    try { results = JSON.parse(raw); } catch { results = []; }
+  }
 
   const urls = (Array.isArray(results) ? results : [])
     .map((r) => r.url)

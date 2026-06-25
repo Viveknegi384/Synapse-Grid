@@ -2,17 +2,15 @@ import { ChatGroq } from '@langchain/groq';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { query as dbQuery } from '../db/index.js';
 import { searchWeb, scrapeUrls } from './tools.js';
+import agentEmitter from '../utils/eventEmitter.js';
 
-// ── Shared LLM (Groq — ultra-low latency) ────────────────────────────────────
 const llm = new ChatGroq({
   apiKey: process.env.GROQ_API_KEY,
   model: 'llama3-8b-8192',
   temperature: 0,
 });
 
-// ── Structured output schema for CriticAgent (JSON Schema — Zod-version safe) ─
-// Using a plain JSON Schema avoids the Zod v3/v4 mismatch between LangChain
-// internals and the locally installed zod package.
+// Plain JSON Schema avoids Zod v3/v4 mismatch with LangChain internals
 const CriticSchema = {
   name: 'critic_output',
   description: 'Structured editorial verdict on the research report',
@@ -33,9 +31,10 @@ const CriticSchema = {
   },
 };
 
-
-// ── Helper: persist agent activity to the DB ──────────────────────────────────
+// Persists log to DB and broadcasts via SSE in real-time
 async function logToDb(sessionId, agentName, message) {
+  const timestamp = new Date().toISOString();
+
   try {
     await dbQuery(
       `INSERT INTO agent_logs (session_id, agent_name, log_message)
@@ -43,21 +42,29 @@ async function logToDb(sessionId, agentName, message) {
       [sessionId, agentName, message]
     );
   } catch (err) {
-    // Non-fatal — log to console but don't crash the agent
     console.error(`[DB Log Error] ${agentName}:`, err.message);
   }
+
+  agentEmitter.emit('agent_update', {
+    sessionId,
+    agentName,
+    logMessage: message,
+    timestamp,
+  });
 }
 
-// ── Agent 1: SearchAgent ──────────────────────────────────────────────────────
-/**
- * Uses the LLM to form an optimised search query, then calls Tavily
- * to retrieve the top 5 relevant URLs.
- */
+export function emitWorkflowComplete(sessionId, draftReport) {
+  agentEmitter.emit('workflow_complete', { sessionId, draftReport });
+}
+
+export function emitWorkflowError(sessionId, error) {
+  agentEmitter.emit('workflow_error', { sessionId, error });
+}
+
 export async function searchAgentNode(state) {
   const { sessionId, userQuery } = state;
   await logToDb(sessionId, 'SearchAgent', `Starting search for: "${userQuery}"`);
 
-  // Ask the LLM to craft a precise, search-engine-friendly query
   const response = await llm.invoke([
     new SystemMessage(
       'You are an expert research assistant. Given a research topic, output ONLY a concise, optimised search query string (no explanation, no quotes).'
@@ -78,11 +85,6 @@ export async function searchAgentNode(state) {
   return { urls };
 }
 
-// ── Agent 2: ScrapeAgent ──────────────────────────────────────────────────────
-/**
- * Visits each URL returned by the SearchAgent, extracts raw page text,
- * then uses the LLM to summarise it into a compact research brief.
- */
 export async function scrapeAgentNode(state) {
   const { sessionId, urls, userQuery } = state;
   await logToDb(sessionId, 'ScrapeAgent', `Scraping ${urls.length} URL(s)…`);
@@ -94,7 +96,7 @@ export async function scrapeAgentNode(state) {
     `Scraping complete. Extracted ${rawText.length} characters. Summarising…`
   );
 
-  // Summarise to keep the context window manageable for the Writer
+  // Summarise to keep context window manageable for the Writer
   const response = await llm.invoke([
     new SystemMessage(
       'You are a research analyst. Summarise the following raw web content into a dense, fact-rich research brief relevant to the given topic. Preserve key data, statistics, names, and dates. Output plain text only.'
@@ -112,11 +114,6 @@ export async function scrapeAgentNode(state) {
   return { scrapedContent };
 }
 
-// ── Agent 3: WriterAgent ──────────────────────────────────────────────────────
-/**
- * Drafts a comprehensive, structured Markdown research report using the
- * scraped content. On revision cycles it incorporates the Critic's feedback.
- */
 export async function writerAgentNode(state) {
   const { sessionId, userQuery, scrapedContent, feedback, revisionCount } = state;
 
@@ -161,28 +158,18 @@ Use professional, precise language. Output ONLY valid Markdown — no preamble.`
   };
 }
 
-// ── Agent 4: CriticAgent ──────────────────────────────────────────────────────
-/**
- * Reviews the draft report against the original query.
- * Uses .withStructuredOutput() to guarantee a typed { status, feedback } object —
- * no manual JSON parsing or hallucination cleanup needed.
- * Forces PASS after 2 revisions to prevent runaway API costs.
- */
 export async function criticAgentNode(state) {
   const { sessionId, draftReport, userQuery, revisionCount } = state;
   await logToDb(sessionId, 'CriticAgent', `Evaluating report (revision count: ${revisionCount})…`);
 
-  // Hard cap — prevent infinite billing loops
+  // Hard cap to prevent runaway API costs
   if (revisionCount >= 2) {
     await logToDb(sessionId, 'CriticAgent', 'Revision cap reached (2). Forcing PASS.');
     return { status: 'PASS', feedback: '' };
   }
 
-  // Lazily create the structured LLM inside the function to avoid top-level
-  // binding issues with the ChatGroq class during module initialisation
   const structuredCriticLlm = llm.withStructuredOutput(CriticSchema);
 
-  // structuredCriticLlm.invoke() returns a typed object matching CriticSchema
   const result = await structuredCriticLlm.invoke([
     new SystemMessage(
       `You are a strict research editor. Evaluate whether the provided Markdown report adequately answers the research topic.

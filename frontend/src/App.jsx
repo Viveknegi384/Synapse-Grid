@@ -4,8 +4,10 @@ import SearchBox from './components/SearchBox.jsx';
 import AgentTerminal from './components/AgentTerminal.jsx';
 import ReportViewer from './components/ReportViewer.jsx';
 
-// Falls back to localhost for local dev; set VITE_API_URL in production
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+// Relative path works in both environments:
+// - Local dev: Vite proxy forwards /api → http://localhost:5000 (see vite.config.js)
+// - Docker:    Nginx proxy forwards /api → backend container (see nginx.conf)
+const API_BASE = '/api';
 
 export default function App() {
   const [sessionId,     setSessionId]     = useState(null);

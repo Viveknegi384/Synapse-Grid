@@ -40,9 +40,6 @@ services:
   frontend:
     build:
       context: ./frontend
-      args:
-        # Empty string — Nginx proxies /api/* to backend so no hardcoded IP needed
-        VITE_API_URL: ""
     restart: unless-stopped
     depends_on:
       - backend

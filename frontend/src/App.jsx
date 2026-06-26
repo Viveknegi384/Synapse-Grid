@@ -4,7 +4,8 @@ import SearchBox from './components/SearchBox.jsx';
 import AgentTerminal from './components/AgentTerminal.jsx';
 import ReportViewer from './components/ReportViewer.jsx';
 
-const API_BASE = 'http://localhost:5000';
+// Falls back to localhost for local dev; set VITE_API_URL in production
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export default function App() {
   const [sessionId,     setSessionId]     = useState(null);

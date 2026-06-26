@@ -1,0 +1,62 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ── Tailwind v4 — single import replaces the old three @tailwind directives ── */
+@import "tailwindcss";
+
+/* ── Design tokens (replaces tailwind.config.js theme.extend in v4) ─────────── */
+@theme {
+  --font-mono: "JetBrains Mono", "Fira Code", Consolas, monospace;
+
+  --color-terminal-bg:      #0a0e17;
+  --color-terminal-surface: #0f1623;
+  --color-terminal-border:  #1e2d45;
+  --color-terminal-green:   #00ff88;
+  --color-terminal-blue:    #38bdf8;
+  --color-terminal-purple:  #a78bfa;
+  --color-terminal-orange:  #fb923c;
+  --color-terminal-red:     #f87171;
+  --color-terminal-muted:   #4a5568;
+  --color-terminal-dim:     #1e293b;
+
+  --animate-blink:      blink 1s step-end infinite;
+  --animate-fadeIn:     fadeIn 0.3s ease-in;
+  --animate-slideUp:    slideUp 0.4s ease-out;
+  --animate-pulse-slow: pulse 3s ease-in-out infinite;
+}
+
+/* ── Keyframes ──────────────────────────────────────────── */
+@keyframes blink   { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── Base Reset ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  background-color: #0a0e17;
+  color: #c9d1d9;
+  font-family: 'Inter', sans-serif;
+}
+
+/* ── Custom Scrollbar ───────────────────────────────────── */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0f1623; }
+::-webkit-scrollbar-thumb { background: #1e2d45; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #2d4a6e; }
+
+/* ── Utility classes ────────────────────────────────────── */
+.glow-green  { text-shadow: 0 0 8px rgba(0,255,136,0.5); }
+.glow-blue   { text-shadow: 0 0 8px rgba(56,189,248,0.5); }
+.glow-border { box-shadow: 0 0 0 1px rgba(0,255,136,0.18), 0 0 20px rgba(0,255,136,0.08); }
+
+/* Terminal scanline overlay */
+.terminal-scanlines {
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 255, 136, 0.015) 2px,
+    rgba(0, 255, 136, 0.015) 4px
+  );
+}

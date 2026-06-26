@@ -13,57 +13,58 @@ export default function SearchBox({ onStartResearch, isResearching }) {
   }
 
   return (
-    <div className="w-full animate-fadeIn">
-      {/* Terminal prompt header */}
-      <div className="flex items-center gap-2 mb-3 font-mono text-xs text-terminal-muted">
-        <span className="text-terminal-green glow-green">$</span>
+    <div className="w-full animate-[fadeIn_0.3s_ease-in]">
+
+      <div className="flex items-center gap-2 mb-2 font-mono text-xs text-[#4a5568]">
+        <span className="text-[#00ff88]" style={{ textShadow: '0 0 6px rgba(0,255,136,0.5)' }}>$</span>
         <span>research_grid</span>
-        <span className="text-terminal-blue">~</span>
-        <span className="animate-blink">▋</span>
+        <span className="text-[#38bdf8]">~</span>
+        <span className="animate-[blink_1s_step-end_infinite]">▋</span>
       </div>
 
-      <form onSubmit={handleSubmit} className="relative group">
+      <form onSubmit={handleSubmit}>
         <div className={`
-          relative flex items-center gap-3 px-4 py-4 rounded-xl border transition-all duration-300
-          bg-terminal-surface/80 backdrop-blur-sm
+          flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3
+          px-3 sm:px-4 py-3 sm:py-3.5 rounded-xl border transition-all duration-300
+          bg-[#0f1623]/80 backdrop-blur-sm
           ${isResearching
-            ? 'border-terminal-blue/50 shadow-[0_0_20px_rgba(56,189,248,0.1)]'
-            : 'border-terminal-border hover:border-terminal-green/40 group-focus-within:border-terminal-green/60 group-focus-within:shadow-[0_0_20px_rgba(0,255,136,0.08)]'
+            ? 'border-[#38bdf8]/50 shadow-[0_0_20px_rgba(56,189,248,0.08)]'
+            : 'border-[#1e2d45] hover:border-[#00ff88]/30 focus-within:border-[#00ff88]/50 focus-within:shadow-[0_0_20px_rgba(0,255,136,0.06)]'
           }
         `}>
-          {/* Icon */}
-          <div className={`flex-shrink-0 transition-colors duration-300 ${
-            isResearching ? 'text-terminal-blue animate-pulse' : 'text-terminal-muted group-focus-within:text-terminal-green'
-          }`}>
-            {isResearching ? <Cpu size={18} /> : <Search size={18} />}
+          <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+            <div className={`flex-shrink-0 transition-colors duration-300 ${
+              isResearching ? 'text-[#38bdf8] animate-pulse' : 'text-[#4a5568]'
+            }`}>
+              {isResearching ? <Cpu size={16} /> : <Search size={16} />}
+            </div>
+
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              disabled={isResearching}
+              placeholder="Enter a research topic…"
+              className="
+                flex-1 min-w-0 bg-transparent border-none outline-none
+                font-mono text-sm text-[#00ff88] placeholder:text-[#4a5568]/60
+                disabled:opacity-50 disabled:cursor-not-allowed
+              "
+            />
           </div>
 
-          {/* Input */}
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            disabled={isResearching}
-            placeholder="Enter a research topic (e.g. Latest advances in solid-state batteries)"
-            className="
-              flex-1 bg-transparent border-none outline-none
-              font-mono text-sm text-terminal-green placeholder:text-terminal-muted/60
-              disabled:opacity-50 disabled:cursor-not-allowed
-            "
-          />
-
-          {/* Submit button */}
           <button
             type="submit"
             disabled={!query.trim() || isResearching}
             className={`
-              flex items-center gap-2 px-5 py-2 rounded-lg
+              flex items-center justify-center gap-2
+              px-5 py-2.5 sm:py-2 rounded-lg flex-shrink-0
               font-mono text-xs font-bold tracking-wider uppercase
               transition-all duration-200
               ${!query.trim() || isResearching
-                ? 'bg-terminal-dim text-terminal-muted cursor-not-allowed'
-                : 'bg-terminal-green text-terminal-bg hover:brightness-110 active:scale-95 shadow-[0_0_12px_rgba(0,255,136,0.3)]'
+                ? 'bg-[#1e293b] text-[#4a5568] cursor-not-allowed'
+                : 'bg-[#00ff88] text-[#0a0e17] hover:brightness-110 active:scale-95 shadow-[0_0_12px_rgba(0,255,136,0.25)]'
               }
             `}
           >
@@ -75,18 +76,17 @@ export default function SearchBox({ onStartResearch, isResearching }) {
             ) : (
               <>
                 <Zap size={13} />
-                <span>Run</span>
+                <span>Run Research</span>
               </>
             )}
           </button>
         </div>
       </form>
 
-      {/* Status hint */}
-      <p className="mt-2 font-mono text-xs text-terminal-muted/60 pl-1">
+      <p className="mt-2 font-mono text-[10px] sm:text-xs text-[#4a5568]/50 pl-1">
         {isResearching
-          ? '⚡ Agents are working — results stream in real-time below'
-          : 'Press Enter or click Run to launch the research pipeline'}
+          ? '⚡ Agents working — logs stream in real-time below'
+          : 'Enter a topic and press Run to start the multi-agent pipeline'}
       </p>
     </div>
   );

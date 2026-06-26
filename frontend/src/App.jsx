@@ -34,7 +34,7 @@ export default function App() {
 
     let newSessionId;
     try {
-      const res = await fetch(`${API_BASE}/api/research/start`, {
+      const res = await fetch(`${API_BASE}/research/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query }),
@@ -55,7 +55,7 @@ export default function App() {
       return;
     }
 
-    const es = new EventSource(`${API_BASE}/api/research/stream/${newSessionId}`);
+    const es = new EventSource(`${API_BASE}/research/stream/${newSessionId}`);
     eventSourceRef.current = es;
 
     es.onmessage = async (e) => {
@@ -80,7 +80,7 @@ export default function App() {
 
         // pull the finished report from REST after SSE closes
         try {
-          const r = await fetch(`${API_BASE}/api/research/session/${newSessionId}`);
+          const r = await fetch(`${API_BASE}/research/session/${newSessionId}`);
           const data = await r.json();
           if (data.report?.report_content) setFinalReport(data.report.report_content);
         } catch (err) {
